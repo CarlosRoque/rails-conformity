@@ -71,12 +71,18 @@ module Rails
         return base.to_json if detail == :summary
 
         payload = base.merge(
-          findings: findings.map(&:to_h),
+          findings: findings.map { |finding| finding_h(finding, detail) },
           recommendations: recommendations.map(&:to_h)
         )
-        return payload.to_json if detail == :findings
+        payload.to_json
+      end
 
-        payload.merge(evidence: findings.map(&:to_h)).to_json
+      private
+
+      def finding_h(finding, detail)
+        hash = finding.to_h
+        hash.delete(:evidence) unless detail == :full
+        hash
       end
     end
   end

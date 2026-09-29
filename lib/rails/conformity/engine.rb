@@ -15,7 +15,7 @@ module Rails
 
       def providers
         available = {
-          "conventions" => Providers::Conventions.new,
+          "conventions" => Providers::Conventions.new(app_root),
           "provenance" => Providers::Provenance.new(app_root),
           "rubocop" => Providers::Rubocop.new(app_root),
           "verify" => Providers::Verify.new(app_root)

@@ -86,15 +86,23 @@ module Rails
             message: "#{delta[:lines]} lines differ from generator output (#{delta[:added]} added, #{delta[:removed]} removed)",
             evidence: delta[:first_diff]
           )
-        ensure
-          return unless generated
         end
 
         def generate_in_sandbox(name, klass)
+          sink = File.new(File::NULL, "w")
           sandbox = Dir.mktmpdir("conformity-sandbox")
+          generated = invoke_in_sandbox(sink, sandbox, name, klass)
+          return unless generated
+
+          File.read(generated)
+          result = generated
+          FileUtils.remove_entry(sandbox)
+          result
+        end
+
+        def invoke_in_sandbox(sink, sandbox, name, klass)
           original_stdout = $stdout
           original_stderr = $stderr
-          sink = File.new(File::NULL, "w")
           $stdout = sink
           $stderr = sink
           Rails::Generators.invoke(
@@ -102,19 +110,20 @@ module Rails
             [klass, "--skip-collision-check", "--no-helper", "--no-orm", "--no-test-framework", "--no-template-engine"],
             destination_root: sandbox
           )
-          generated = File.join(sandbox, "app", "controllers", "#{name}_controller.rb")
-          File.exist?(generated) ? generated : nil
+          File.join(sandbox, "app", "controllers", "#{name}_controller.rb")
         rescue StandardError
+          FileUtils.remove_entry(sandbox) if File.exist?(sandbox)
           nil
         ensure
           if original_stdout
             $stdout = original_stdout
             $stderr = original_stderr
           end
+          sink.close unless sink.closed?
         end
 
-        def normalized_delta(generated_path, app_path)
-          generated = normalize(File.read(generated_path))
+        def normalized_delta(generated_source, app_path)
+          generated = normalize(generated_source)
           actual = normalize(File.read(app_path))
           return { lines: 0, added: 0, removed: 0, first_diff: nil } if generated == actual
 

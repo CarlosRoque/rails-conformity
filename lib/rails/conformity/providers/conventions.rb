@@ -4,6 +4,10 @@ module Rails
   module Conformity
     module Providers
       class Conventions < Base
+        def initialize(app_root)
+          @app_root = app_root
+        end
+
         def call(files:, full: false)
           findings = []
           files.each do |file|
@@ -60,15 +64,15 @@ module Rails
         end
 
         def missing_tests_finding(file, name)
-          test_file = "test/controllers/#{name}_controller_test.rb"
-          spec_file = "spec/controllers/#{name}_controller_spec.rb"
+          test_file = File.join(@app_root, "test/controllers/#{name}_controller_test.rb")
+          spec_file = File.join(@app_root, "spec/controllers/#{name}_controller_spec.rb")
           return if File.exist?(test_file) || File.exist?(spec_file)
 
           Finding.new(
             rule_id: "convention/missing_controller_tests",
             severity: Rules.severity_for("convention/missing_controller_tests"),
             file: file,
-            message: "No controller test found (#{test_file})"
+            message: "No controller test found (test/controllers/#{name}_controller_test.rb)"
           )
         end
 
