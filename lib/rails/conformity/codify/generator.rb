@@ -69,8 +69,8 @@ module Rails
 
         def self.family_digest(source)
           source.gsub(/^\s*#.*\n?/, "")
+                .gsub(/'[^']*'|"[^"]*"/, "STR")
                 .gsub(/[A-Z][a-zA-Z0-9]*/, "CAP")
-                .gsub(/"[^"]*"/, "STR")
                 .gsub(/\d+/, "NUM")
                 .gsub(/[a-z_][a-z0-9_]*[?!=]?/) { |word| KEYWORDS.include?(word) ? word : "ID" }
         end
@@ -91,9 +91,10 @@ module Rails
 
         def extract
           @roles = { "service" => files.dup }
-          specs = files.map { |file| related_spec(file) }
-          if specs.compact.size >= 2 && skeletons_match(specs.compact)
-            @roles["spec"] = specs.compact
+          tests = files.map { |file| related_test(file) }.compact
+          role_name = test_role_name(tests)
+          if tests.size >= 2 && role_name && skeletons_match(tests)
+            @roles[role_name] = tests
           end
 
           ok = @roles.all? { |role, role_files| extract_role(role, role_files) }
@@ -139,33 +140,66 @@ module Rails
         def extract_role(role, role_files)
           source = File.read(File.join(app_root, role_files.first))
           base_lines = source.lines
-          slots = []
-          role_files.each do |file|
-            File.read(File.join(app_root, file)).lines.each_with_index do |line, idx|
-              next unless idx < base_lines.length
-              slots << idx if line != base_lines[idx] && !slots.include?(idx)
-            end
-          end
-          slots.sort!
+          member_lines = role_files.map { |f| File.read(File.join(app_root, f)).lines }
+          slots = (0...base_lines.length).select { |idx| member_lines.any? { |ml| ml[idx] != base_lines[idx] } }
+          specs = slots.map { |idx| [idx, line_slot_spec(idx, base_lines, member_lines, role)] }.to_h
 
-          locals_map = slots_local_map(base_lines, slots)
-          @role_templates[role] = build_line_template(source, base_lines, slots, locals_map)
+          # Pass 1: best-effort template. Pass 2: force any line that still
+          # renders wrong to a whole-line slot (round-trip guaranteed).
+          2.times do
+            template = build_line_template(source, specs)
+            bad = (0...base_lines.length).select do |idx|
+              member_lines.each_with_index.any? do |ml, i|
+                next false if ml[idx].nil? && idx >= ml.length && idx != 0 && false
+                rendered = render_lines(template, locals_for(member_lines[i], specs.to_a, i))
+                rendered.nil? || rendered[idx] != ml[idx]
+              end
+            end & slots
+            specs = specs.map do |idx, spec|
+              if bad.include?(idx) && spec[:kind] != :verbatim
+                [idx, { kind: :verbatim, local: next_local!(role), force: true }]
+              else
+                [idx, spec]
+              end
+            end.to_h
+          end
+
+          template = build_line_template(source, specs)
+          ok = role_files.each_with_index.all? do |file, i|
+            rendered = render_lines(template, locals_for(member_lines[i], specs.to_a, i))
+            rendered && rendered == File.read(File.join(app_root, file)).lines && rendered.join == File.read(File.join(app_root, file))
+          end
+          @role_templates[role] = template if ok
           @role_instances[role] ||= {}
           role_files.each_with_index do |file, i|
-            @role_instances[role][file] = locals_for(role_files, i, slots, locals_map)
+            @role_instances[role][file] = locals_for(member_lines[i], specs.to_a, i)
           end
-          true
+          ok
         end
 
-        def related_spec(file)
+        # Per-family test-role files: rspec (spec/**/*_spec.rb) or Minitest
+        # (test/**/*_test.rb), whichever the members consistently have. Mixed
+        # kinds across members never become a role.
+        def related_test(file)
           stem = File.basename(file, ".rb")
-          hit = Dir.glob(File.join(app_root, "spec", "**", "#{stem}_spec.rb")).first
-          hit&.delete_prefix("#{app_root}/")
+          spec = Dir.glob(File.join(app_root, "spec", "**", "#{stem}_spec.rb")).first
+          return spec.delete_prefix("#{app_root}/") if spec
+
+          test = Dir.glob(File.join(app_root, "test", "**", "#{stem}_test.rb")).first
+          test&.delete_prefix("#{app_root}/")
         end
 
-        def skeletons_match(spec_files)
-          skeletons = spec_files.map { |path| self.class.skeleton(File.read(File.join(app_root, path))) }
-          skeletons.uniq.size == 1
+        def test_role_name(test_files)
+          prefixes = test_files.map { |path| File.dirname(path).split("/").first }.uniq
+          return nil unless prefixes.size == 1
+          return nil unless %w[spec test].include?(prefixes.first)
+
+          prefixes.first
+        end
+
+        def skeletons_match(test_files)
+          digests = test_files.map { |path| self.class.family_digest(File.read(File.join(app_root, path))) }
+          digests.uniq.size == 1
         end
 
         def tokens(relative)
@@ -191,55 +225,105 @@ module Rails
           end
         end
 
-        def slots_local_map(base_lines, slots)
-          snake_stem = File.basename(files.first, ".rb").delete_suffix("_#{common_class_suffix.underscore}")
-          base_lines.each_with_index.with_object({}) do |(line, idx), map|
-            next unless slots.include?(idx)
+        SAFE_CLASS = "\x01"
+        SAFE_SNAKE = "\x02"
 
-            map[idx] = if line.include?(member_class(0))
-              :class_name
-            elsif snake_stem != "" && line.include?(snake_stem)
-              :snake_stem
-            else
-              :"v#{map.values.count { |v| v.to_s.start_with?("v") } + 1}"
-            end
-          end
+        def snake_stem_for(i)
+          File.basename(files[i], ".rb").delete_suffix("_#{common_class_suffix.underscore}")
         end
 
-        # Line-level slots: a differing line is replaced whole. Name-aware
-        # lines keep templatable names (class name, snake stem) so generated
-        # members inherit correct naming; every other differing line becomes
-        # a verbatim slot (default = first member, overridable via options).
-        def build_line_template(source, base_lines, slots, locals_map)
-          snake_stem = File.basename(files.first, ".rb").delete_suffix("_#{common_class_suffix.underscore}")
-          result = base_lines.dup
-          slots.each do |idx|
-            line = base_lines[idx]
-            result[idx] = case locals_map[idx]
+        def next_local!(role)
+          @local_counter ||= {}
+          n = (@local_counter[role] ||= 0) + 1
+          @local_counter[role] = n
+          role == "service" ? :"v#{n}" : :"#{role}_v#{n}"
+        end
+
+        # Classify one differing line:
+        # - :class_name / :snake_stem — name differences only, templatable.
+        # - :tokens — names plus per-member content; token-level slots.
+        # - :verbatim — anything else, whole-line slot (default = member 0).
+        def line_slot_spec(idx, base_lines, member_lines, role)
+          base = base_lines[idx]
+          lines = member_lines.map { |ml| ml[idx] }
+          anon = lines.each_with_index.map do |line, i|
+            res = line.to_s.gsub(member_class(i), SAFE_CLASS)
+            res.gsub(snake_stem_for(i), SAFE_SNAKE)
+          end
+          return { kind: :class_name } if anon.uniq.size == 1 && anon[0].include?(SAFE_CLASS)
+          return { kind: :snake_stem } if anon.uniq.size == 1 && anon[0].include?(SAFE_SNAKE)
+
+          toks = anon.map(&:split)
+          if toks.all? { |t| t.size == toks[0].size }
+            base_toks = toks[0]
+            out = base_toks.dup
+            indent = base[/\A\s*/] || ""
+            value_map = {}
+            differing = false
+            (0...base_toks.size).each do |j|
+              next unless toks.any? { |t| t[j] != base_toks[j] }
+
+              differing = true
+              tok = base_toks[j]
+              out[j] = if tok.include?(SAFE_CLASS)
+                tok.gsub(SAFE_CLASS, "<%= class_name %>#{common_class_suffix}").gsub(SAFE_SNAKE, "<%= snake_stem %>")
+              elsif tok.include?(SAFE_SNAKE)
+                tok.gsub(SAFE_SNAKE, "<%= snake_stem %>")
+              else
+                name = next_local!(role)
+                value_map[j] = name
+                "<%= #{name} %>"
+              end
+            end
+            if differing
+              return { kind: :tokens, template: indent + out.join(" "), value_map: value_map }
+            end
+          end
+          { kind: :verbatim, local: next_local!(role) }
+        end
+
+        def build_line_template(source, specs)
+          result = source.lines.dup
+          specs.each do |idx, spec|
+            line = source.lines[idx]
+            result[idx] = case spec[:kind]
             when :class_name
-              line = line.gsub(member_class(0), "<%= class_name %>#{common_class_suffix}")
               stem = member_class(0).delete_suffix(common_class_suffix)
-              line.gsub(/#{stem}(?![a-z_])/, "<%= class_name %>")
+              line.gsub(member_class(0), "<%= class_name %>#{common_class_suffix}")
+                  .gsub(/#{stem}(?![a-z_])/, "<%= class_name %>")
             when :snake_stem
-              line.gsub(/#{snake_stem}(?![a-z_])/, "<%= snake_stem %>")
+              line.gsub(/#{Regexp.escape(snake_stem_for(0))}(?![a-z_])/, "<%= snake_stem %>")
+            when :tokens
+              spec[:template]
             else
-              # Verbatim slot: the stored line carries its own newline.
-              "<%= #{locals_map[idx]} %>"
+              "<%= #{spec[:local]} %>"
             end
           end
           result.join
         end
 
-        def locals_for(role_files, i, slots, locals_map)
-          lines = File.read(File.join(app_root, role_files[i])).lines
+        def render_lines(template_source, instance)
+          ERB.new(template_source).result_with_hash(instance).lines
+        rescue StandardError, ScriptError
+          nil
+        end
+
+        def locals_for(lines, specs, i)
           locals = {
             class_name: member_class(i).delete_suffix(common_class_suffix),
-            snake_stem: File.basename(files[i], ".rb").delete_suffix("_#{common_class_suffix.underscore}")
+            snake_stem: snake_stem_for(i)
           }
-          lines.each_with_index do |line, idx|
-            next unless slots.include?(idx) && locals_map[idx].to_s.start_with?("v")
+          specs.each do |idx, spec|
+            line = lines[idx]
+            next if line.nil?
 
-            locals[locals_map[idx]] = line
+            case spec[:kind]
+            when :verbatim
+              locals[spec[:local]] = line
+            when :tokens
+              toks = line.split
+              spec[:value_map].each { |j, name| locals[name] = toks[j] }
+            end
           end
           locals
         end
@@ -252,6 +336,17 @@ module Rails
               value.inspect
             else
               "'#{value.gsub("'", %q(\\'))}'"
+            end
+          end
+
+          # Multi-line option defaults emit as chunks joined at runtime so the
+          # emitted source stays under the 120-char LineLength default.
+          ruby_default = lambda do |value|
+            if value.include?("\n")
+              pieces = value.scan(/.{1,60}/m)
+              "[\n" + pieces.map { |piece| "      " + piece.inspect }.join(",\n") + "\n    ].join"
+            else
+              ruby_string.call(value)
             end
           end
 
@@ -271,19 +366,24 @@ module Rails
           lines << "  # Generates family members from the codified team template."
           lines << "  class #{name.camelize}Generator < Rails::Generators::NamedBase"
           lines << "    source_root File.expand_path('templates', __dir__)" << ""
-          (@role_instances["service"]&.first&.last || {}).each do |key, value|
-            next if key == :class_name || key == :snake_stem
+          all_slot_locals = (@role_instances || {}).sort.map { |_role, instances| (instances&.first&.last || {}) }
+          all_slot_locals.each do |locals|
+            locals.each do |key, value|
+              next if key == :class_name || key == :snake_stem
 
-            lines << "    class_option :#{key}, type: :string, default: #{ruby_string.call(value)}"
+              lines << "    class_option :#{key}, type: :string, default: #{ruby_default.call(value)}"
+            end
           end
           lines << "" << "    def create_#{name.underscore}"
           lines.concat(dest_lines)
           lines << "" << "      register_member" if @registration
           lines << "    end" << ""
-          (@role_instances["service"]&.first&.last || {}).each_key do |key|
-            next if key == :class_name || key == :snake_stem
+          all_slot_locals.each do |locals|
+            locals.each_key do |key|
+              next if key == :class_name || key == :snake_stem
 
-            lines << "    def #{key} = options[:#{key}]"
+              lines << "    def #{key} = options[:#{key}]"
+            end
           end
           if @registration
             lines << ""

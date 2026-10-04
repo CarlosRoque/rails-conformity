@@ -48,11 +48,13 @@ itself provides (its built-in defaults — do nothing) or your own team config i
 you already have one. How strictly the gate treats rubocop goes in
 `config/conformity.yml` (`checks.rubocop.mode: strict` or `advisory`).
 
-### Specs
+### Specs and tests
 
 rspec is first-class: codify a family whose members have `spec/**` files and
-the produced generator writes specs too (multi-file role, round-trip tested).
-Minitest apps write tests by hand for now.
+the produced generator writes specs too. Minitest works the same way: if the
+family members have `test/**/*_test.rb` files, the codifier picks them up as
+the test role (per-file detection — whatever the project actually uses,
+rspec or minitest, becomes the generated test).""
 
 ## Use
 

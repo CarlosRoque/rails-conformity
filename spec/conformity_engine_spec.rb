@@ -160,6 +160,47 @@ RSpec.describe Rails::Conformity::Codify::Generator do
     end
   end
 
+  it "codifies a service + minitest family as one multi-file pattern (test role)" do
+    TEST = <<~'RUBY'
+      require 'test_helper'
+
+      module Units
+        class %sCalculatorTest < ActiveSupport::TestCase
+          test '%s' do
+            assert_equal BigDecimal('9.99'), Units::%sCalculator.new(obj).call
+          end
+        end
+      end
+    RUBY
+
+    SERVICE = <<~'RUBY'
+      # frozen_string_literal: true
+
+      module Units
+        class %sCalculator
+          def call
+            @cart.cart_items.sum(&:sub_total)
+          end
+        end
+      end
+    RUBY
+
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "services", "units"))
+      FileUtils.mkdir_p(File.join(dir, "test", "services", "units"))
+      %w[subtotal discount].each do |name|
+        File.write(File.join(dir, "app", "services", "units", "#{name}_calculator.rb"), format(SERVICE, name.camelize))
+        File.write(File.join(dir, "test", "services", "units", "#{name}_calculator_test.rb"), format(TEST, name.camelize, "checks #{name}", name.camelize))
+      end
+      generator = described_class.new(dir, %w[app/services/units/subtotal_calculator.rb app/services/units/discount_calculator.rb])
+
+      expect(generator.extract).to be true
+      expect(generator.round_trip?).to be true
+      expect(generator.roles.keys).to eq(%w[service test])
+      expect(generator.role_templates["test"]).to include("<%= class_name %>CalculatorTest")
+    end
+  end
+
   it "codifies a service + spec family as one multi-file pattern" do
     SPEC = <<~'RUBY'
       require "test_helper"
