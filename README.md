@@ -32,6 +32,48 @@ The install generator:
 
 That's it. The gate now runs on every push and on every agent edit.
 
+## The skill
+
+Install also ships `.claude/skills/conformity/SKILL.md`. Every agent that reads skills gets the same playbook. It tells the agent:
+
+- The hard rules: never hand-edit the rendered steering files, never hand-write codified patterns, never add `# rubocop:disable` without a registry entry.
+- What gate failures mean and what to do: fix the code, or ask you.
+- The three moves for a repeated pattern: codify, reject, or keep.
+- The full codify loop, step by step.
+
+You can read it before installing to judge for yourself.
+
+## A session with an agent
+
+This is what a normal session looks like once the hooks are wired. No new commands to remember. The agent just behaves.
+
+**Editing legacy code.** The agent edits a file with known debt. `edit-check` runs, finds nothing new against the baseline, and stays silent. The agent moves on. No blocking, no rubocop noise.
+
+**Adding sloppy code.** The agent writes a controller with raw params and no test. On save, `edit-check` stops it:
+
+```
+convention/strong_params: use params.expect(...)
+convention/missing_controller_tests: add test/controllers/... 
+```
+
+The agent fixes it or asks you. Sloppy code never reaches git.
+
+**Building a feature the fast way.** The agent needs a pricing calculator. A generator exists from codify. It runs:
+
+```bash
+bin/rails g team:calculator CartRush
+```
+
+It gets the module, doc comment, and test skeleton for free. It fixes the one line that differs, runs the tests, and the gate is green.
+
+**Spotting a repeated pattern.** The agent edits two similar services and reports:
+
+> "These two files are structurally identical. Codify them as a generator, or reject the pattern?"
+
+You pick. The agent runs `codify_generator` (round-trip verified) or records a reject entry with a TODO note. Either way, steering docs update with `conformity:sync`.
+
+**Pushing.** The pre-push gate runs the full check: suite, conventions, rubocop, steering drift. Green pushes. Red stops before CI does.
+
 ## Daily use
 
 | Command | What it does |
