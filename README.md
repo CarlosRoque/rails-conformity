@@ -20,6 +20,14 @@ rails-conformity breaks the cycle. It works like a ratchet:
 
 The point: compliance goes up, effort goes down, and the gate never gets looser by accident.
 
+Where rules live, by determinism. Move rules down the ladder as they mature:
+
+- **Judgment-after**: review, security review.
+- **Deterministic-after**: cops, specs, CI, the gate.
+- **Deterministic-before**: generators, tool permissions, hooks.
+
+Rules flow judgment-after → deterministic-after → deterministic-before. Codify to move them. One registry, rendered everywhere.
+
 ## Install
 
 ```bash
