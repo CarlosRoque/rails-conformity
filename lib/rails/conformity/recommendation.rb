@@ -93,7 +93,7 @@ module Rails
             finding,
             strategy: "manual",
             command: nil,
-            note: note || "Requires judgment; raise it in triage (conform / codify / exempt)"
+            note: note || "Needs a human decision — run bin/rails conformity:triage"
           )
         end
       end

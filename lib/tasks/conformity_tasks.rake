@@ -43,10 +43,11 @@ namespace :conformity do
     engine = Rails::Conformity::TaskHelpers.engine
     result = engine.check(full_verify: true)
     if result[:passed?]
-      puts "conformity: green (baseline ratchet honored)"
+      puts "conformity: green — no new findings"
     else
+      n = result[:new_findings].size
       result[:new_findings].each { |finding| warn finding.terse }
-      warn "conformity: #{result[:new_findings].size} new finding(s) — gate failed"
+      warn "conformity: #{n} new finding#{'s' if n != 1} — gate failed"
       exit 2
     end
   end
@@ -56,14 +57,14 @@ namespace :conformity do
     options = Rails::Conformity::TaskHelpers.parse_args(args)
     full = options["full"] == "true"
     count, score = Rails::Conformity::TaskHelpers.engine.record_baseline(full_verify: full)
-    puts "conformity: baseline recorded — #{count} findings, score #{score}"
+    puts "conformity: baseline recorded — #{count} known findings, score #{score}"
   end
 
   desc "Interactive triage of all findings"
   task triage: :environment do
     engine = Rails::Conformity::TaskHelpers.engine
     result = Rails::Conformity::Installer.new(Rails.root).triage(engine)
-    puts "conformity: triage complete — #{result[:decisions].size} decision(s)"
+    puts "conformity: triage complete — #{result[:decisions].size} decisions made"
   end
 
   desc "First run: ratchet baseline (default) or interactive triage (--mode=triage)"
@@ -71,9 +72,12 @@ namespace :conformity do
     options = Rails::Conformity::TaskHelpers.parse_args(args)
     mode = options.fetch("mode", "ratchet")
     result = Rails::Conformity::Installer.new(Rails.root).first_run(mode: mode)
-    count = result[:findings] || result[:decisions]&.size
-    suffix = count ? " — #{count} finding(s) recorded" : ""
-    puts "conformity: first_run (#{result[:mode]})#{suffix}"
+    if result[:mode].include?("skipped")
+      puts "conformity: first run skipped — baseline already exists"
+    else
+      count = result[:findings] || result[:decisions]&.size
+      puts "conformity: first run done (#{result[:mode]}) — #{count} recorded"
+    end
   end
 
   desc "Regenerate AGENTS.md and docs/conventions from the registry"
@@ -95,11 +99,11 @@ namespace :conformity do
         arg
       end
     end
-    abort "conformity: no files given" if files.empty?
+    abort "conformity: no files given — usage: codify_generator[file1,file2[,file3]]" if files.empty?
 
     generator = Rails::Conformity::Codify::Generator.new(Rails.root, files, register: register)
     unless generator.extract && generator.round_trip?
-      abort "conformity: round-trip test FAILED — pattern not codified (template must reproduce every original)"
+      abort "conformity: round-trip test FAILED — nothing written. Pick members with the same shape."
     end
 
     name = generator.generator_name
@@ -139,7 +143,7 @@ namespace :conformity do
       ]
     )
     unless result[:passed?]
-      abort "conformity: corpus test FAILED (missed: #{result[:missed]}, false hits: #{result[:false_hits]}) — cop rejected"
+      abort "conformity: corpus test FAILED (missed: #{result[:missed]}, false hits: #{result[:false_hits]}) — cop rejected, nothing written"
     end
 
     engine = Rails::Conformity::TaskHelpers.engine
@@ -151,6 +155,6 @@ namespace :conformity do
       "created_from" => "convention/raw_sql"
     )
     Rails::Conformity::Renderer.new(Rails.root, engine.policy, engine.registry).write
-    puts "conformity: corpus test PASSED — cop registered (missed: 0, false hits: 0)"
+    puts "conformity: corpus test PASSED — cop registered"
   end
 end

@@ -28,7 +28,9 @@ module Rails
           mode = "ratchet"
         end
         first_run = installer.first_run(mode: mode)
-        say_status :first_run, "#{first_run[:mode]} (#{first_run[:findings] || first_run[:decisions]&.size} findings recorded)", :green
+        count = first_run[:findings] || first_run[:decisions]&.size
+        summary = first_run[:mode].include?("skipped") ? "skipped (baseline exists)" : "#{count} findings recorded"
+        say_status :first_run, summary, :green
       end
 
       private

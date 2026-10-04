@@ -92,14 +92,14 @@ bin/rails conformity:check
 Clean:
 
 ```
-conformity: green (baseline ratchet honored)
+conformity: green — no new findings
 ```
 
 A new violation:
 
 ```
 error: convention/strong_params: app/controllers/gadgets_controller.rb ...
-conformity: 1 new finding(s) — gate failed     # exit 2
+conformity: 2 new findings — gate failed     # exit 2
 ```
 
 The report tells you how to fix it:
@@ -134,7 +134,7 @@ Raw SQL in `where` keeps sneaking in? Codify the cop. It must pass a corpus test
 
 ```bash
 bin/rails conformity:codify_cop
-# conformity: corpus test PASSED — cop registered (missed: 0, false hits: 0)
+# conformity: corpus test PASSED — cop registered
 ```
 
 ## Reject a pattern
