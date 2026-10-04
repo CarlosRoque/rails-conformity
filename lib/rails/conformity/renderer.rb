@@ -139,9 +139,9 @@ module Rails
 
           - Every controller defines a private `<singular>_params` method using `params.expect` / `params.require`.
             - good: `params.expect(sailing: [:starts_at, :ends_at])`
-            - bad: `Sailing.new(params[:sailing])`
+            - bad: `Post.new(params[:post])`
           - Scaffold shape: `before_action :set_<singular>` plus a private setter using `<Model>.find(params[:id])`.
-            - bad: `Sailing.find(params[:id].to_i)` inline in every action
+            - bad: `Post.find(params[:id].to_i)` inline in every action
           - CRUD actions redirect or render conventional formats; no inline `render json:`.
           - Instance variables follow scaffold names: `@<plural>` in index, `@<singular>` elsewhere.
           - Domain logic (fares, calculations) lives in app/services. Actions over 15 statements are flagged.
@@ -155,8 +155,8 @@ module Rails
           # Queries
 
           - No raw SQL strings in app/ code.
-            - good: `Sailing.where(starts_at: range)`
-            - bad: `Sailing.where("starts_at > ?", cutoff)`
+            - good: `Post.where(status: :published)`
+            - bad: `Post.where("published_at > ?", cutoff)`
         MARKDOWN
       end
 

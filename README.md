@@ -41,6 +41,19 @@ The install generator:
 - Writes `AGENTS.md` and `docs/conventions` from the registry.
 - Wires hooks for git (pre-push), Claude, Codex, and OpenCode.
 
+### RuboCop config
+
+We ship **no** `.rubocop.yml` and never will. You either use the one RuboCop
+itself provides (its built-in defaults — do nothing) or your own team config if
+you already have one. How strictly the gate treats rubocop goes in
+`config/conformity.yml` (`checks.rubocop.mode: strict` or `advisory`).
+
+### Specs
+
+rspec is first-class: codify a family whose members have `spec/**` files and
+the produced generator writes specs too (multi-file role, round-trip tested).
+Minitest apps write tests by hand for now.
+
 ## Use
 
 ### 1. See what drifted

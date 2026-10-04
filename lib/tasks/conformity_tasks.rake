@@ -130,12 +130,12 @@ namespace :conformity do
     )
     result = cop.corpus_test(
       positives: [
-        "Sailing.where(\"starts_at > ?\", cutoff)",
-        "Sailing.where(\"fare_cents > 100\")"
+        'Post.where("published_at > ?", cutoff)',
+        'Post.where("published_cents > 100")'
       ],
       negatives: [
-        "Sailing.where(starts_at: cutoff)",
-        "Sailing.where.not(starts_at: cutoff)"
+        "Post.where(published_at: cutoff)",
+        "Post.where.not(published_at: cutoff)"
       ]
     )
     unless result[:passed?]
