@@ -81,12 +81,21 @@ namespace :conformity do
     puts "conformity: synced #{files.join(', ')}"
   end
 
-  desc "Codify a repeated pattern as a generator (comma-separated files)"
+  desc "Codify a repeated pattern as a generator (comma-separated files, --register=path for factory registration)"
   task :codify_generator, [:opts] => :environment do |_t, args|
-    files = ([args[:opts]] + args.extras).compact
+    raw = ([args[:opts]] + args.extras).compact
+    register = nil
+    files = raw.filter_map do |arg|
+      if arg.start_with?("--register=")
+        register = arg.delete_prefix("--register=")
+        nil
+      else
+        arg
+      end
+    end
     abort "conformity: no files given" if files.empty?
 
-    generator = Rails::Conformity::Codify::Generator.new(Rails.root, files)
+    generator = Rails::Conformity::Codify::Generator.new(Rails.root, files, register: register)
     unless generator.extract && generator.round_trip?
       abort "conformity: round-trip test FAILED — pattern not codified (template must reproduce every original)"
     end
@@ -94,13 +103,15 @@ namespace :conformity do
     name = generator.generator_name
     written = generator.write_generator(name: name)
     engine = Rails::Conformity::TaskHelpers.engine
-    engine.registry.add(
+    entry = {
       "id" => "generator-#{name}",
       "kind" => "generator",
       "description" => "#{name.camelize} services are generated, never hand-written",
       "command" => "bin/rails g team:#{name} <Name>",
       "created_from" => "convention/repeated_pattern"
-    )
+    }
+    entry["register"] = register if register
+    engine.registry.add(entry)
     Rails::Conformity::Renderer.new(Rails.root, engine.policy, engine.registry).write
     puts "conformity: round-trip PASSED — #{written.join(', ')}"
   end

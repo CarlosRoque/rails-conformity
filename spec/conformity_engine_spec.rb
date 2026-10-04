@@ -104,6 +104,111 @@ RSpec.describe Rails::Conformity::Codify::Generator do
       expect(groups).to be_empty
     end
   end
+
+  it "finds namespaced families and keeps the module wrapper in the template" do
+    NS_ALERT = <<~'RUBY'
+      module Shipping
+        class %sAlert
+          def call
+            "%s alert: needs attention"
+          end
+        end
+      end
+    RUBY
+
+    Dir.mktmpdir do |dir|
+      %w[rate fuel].each do |name|
+        FileUtils.mkdir_p(File.join(dir, "app", "services", "shipping"))
+        File.write(File.join(dir, "app", "services", "shipping", "#{name}_alert.rb"), format(NS_ALERT, name.camelize, name.camelize))
+      end
+      files = %w[app/services/shipping/rate_alert.rb app/services/shipping/fuel_alert.rb]
+      generator = described_class.new(dir, files)
+
+      expect(generator.extract).to be true
+      expect(generator.round_trip?).to be true
+      expect(generator.template_source).to include("module Shipping")
+      expect(generator.template_source).to include("<%= class_name %>Alert")
+      expect(generator.generator_name).to eq("alert")
+      expect(generator.instances["app/services/shipping/rate_alert.rb"][:class_name]).to eq("Rate")
+    end
+  end
+
+  it "codifies a service + spec family as one multi-file pattern" do
+    SPEC = <<~'RUBY'
+      require "test_helper"
+
+      class %sAlertTest < ActiveSupport::TestCase
+        test "calls" do
+          record = Object.new
+          def record.name = "x"
+          assert_equal "%s alert: x needs attention", %sAlert.new(record).call
+        end
+      end
+    RUBY
+
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "services"))
+      FileUtils.mkdir_p(File.join(dir, "spec", "services"))
+      %w[route dock].each do |name|
+        File.write(File.join(dir, "app", "services", "#{name}_alert.rb"), format(ALERT, name.camelize, name.camelize))
+        FileUtils.mkdir_p(File.join(dir, "spec", "services"))
+        File.write(File.join(dir, "spec", "services", "#{name}_alert_spec.rb"), format(SPEC, name.camelize, name.camelize, name.camelize))
+      end
+      generator = described_class.new(dir, %w[app/services/route_alert.rb app/services/dock_alert.rb])
+
+      expect(generator.extract).to be true
+      expect(generator.round_trip?).to be true
+      expect(generator.roles.keys).to eq(%w[service spec])
+      expect(generator.role_templates["spec"]).to include("<%= class_name %>AlertTest")
+    end
+  end
+
+  it "codifies factory registration with a round-tripped line template" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "services"))
+      %w[route dock].each do |name|
+        File.write(File.join(dir, "app", "services", "#{name}_alert.rb"), format(ALERT, name.camelize, name.camelize))
+      end
+      File.write(File.join(dir, "app", "services", "alert_factory.rb"), <<~FACTORY)
+        class AlertFactory
+          REGISTRY = {
+            route: RouteAlert,
+            dock: DockAlert
+          }.freeze
+        end
+      FACTORY
+      generator = described_class.new(
+        dir, %w[app/services/route_alert.rb app/services/dock_alert.rb], register: "app/services/alert_factory.rb"
+      )
+
+      expect(generator.extract).to be true
+      expect(generator.round_trip?).to be true
+      registration = generator.registration
+      expect(registration.round_trip?).to be true
+      expect(registration.render("FogAlert", "fog_alert", "fog")).to eq("    fog: FogAlert,\n")
+    end
+  end
+
+  it "fails registration extraction when a member is missing from the factory" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "services"))
+      %w[route dock].each do |name|
+        File.write(File.join(dir, "app", "services", "#{name}_alert.rb"), format(ALERT, name.camelize, name.camelize))
+      end
+      File.write(File.join(dir, "app", "services", "alert_factory.rb"), <<~FACTORY)
+        class AlertFactory
+          REGISTRY = {
+            route: RouteAlert
+          }.freeze
+        end
+      FACTORY
+      generator = described_class.new(
+        dir, %w[app/services/route_alert.rb app/services/dock_alert.rb], register: "app/services/alert_factory.rb"
+      )
+
+      expect(generator.extract).to be false
+    end
+  end
 end
 
 RSpec.describe Rails::Conformity::Renderer do
