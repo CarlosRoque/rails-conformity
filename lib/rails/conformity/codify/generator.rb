@@ -28,11 +28,51 @@ module Rails
           @registration = nil
         end
 
+        # Directories scanned for repeated structural families. Grouping itself
+        # is per directory, so a family never spans different folders.
+        FAMILY_DIRS = %w[app/services app/models app/jobs app/controllers].freeze
+        BASE_FILES = %w[application.rb application_job.rb application_record.rb
+                        application_controller.rb application_cable.rb connection.rb
+                        channel.rb application_helper.rb application_mailer.rb].freeze
+
+        def self.family_files(app_root)
+          FAMILY_DIRS.flat_map { |dir| Dir.glob(File.join(app_root, dir, "**", "*.rb")) }
+                     .reject { |path| BASE_FILES.include?(File.basename(path)) }
+                     .reject { |path| path.include?(File.join("app", "controllers", "concerns")) }
+        end
+
         def self.patterns(app_root, files: nil)
-          primary = files || Dir.glob(File.join(app_root, "app", "services", "**", "*.rb"))
+          primary = files || family_files(app_root)
           relative = primary.map { |path| path.delete_prefix("#{app_root}/") }
-          relative.group_by { |file| [File.dirname(file), skeleton(File.read(File.join(app_root, file)))] }
-                  .values.select { |group| group.size >= 2 }
+          relative.group_by { |file| [File.dirname(file), family_digest(File.read(File.join(app_root, file)))] }
+                  .values.filter_map do |group|
+            next nil if group.size < 2
+
+            generator = nil
+            begin
+              generator = new(app_root, group.map { |path| path.delete_prefix("#{app_root}/") })
+              next nil unless generator.extract && generator.round_trip?
+            rescue StandardError, ScriptError
+              next nil
+            end
+
+            generator.files
+          end
+        end
+
+        # Loose digest for candidate grouping: normalize identifiers and
+        # literals. Exact token-diff extraction plus the round-trip test (the
+        # real judge) decides whether a group is actually codifiable.
+        KEYWORDS = %w[class module def end require do if unless else elsif when case
+                      while until rescue ensure return yield self then and or not in
+                      begin lambda proc freeze].freeze
+
+        def self.family_digest(source)
+          source.gsub(/^\s*#.*\n?/, "")
+                .gsub(/[A-Z][a-zA-Z0-9]*/, "CAP")
+                .gsub(/"[^"]*"/, "STR")
+                .gsub(/\d+/, "NUM")
+                .gsub(/[a-z_][a-z0-9_]*[?!=]?/) { |word| KEYWORDS.include?(word) ? word : "ID" }
         end
 
         def self.skeleton(source)
@@ -97,21 +137,22 @@ module Rails
         private
 
         def extract_role(role, role_files)
-          base = File.read(File.join(app_root, role_files.first)).split
+          source = File.read(File.join(app_root, role_files.first))
+          base_lines = source.lines
           slots = []
           role_files.each do |file|
-            File.read(File.join(app_root, file)).split.each_with_index do |token, slot|
-              next unless slot < base.length
-              slots << slot if token != base[slot] && !slots.include?(slot)
+            File.read(File.join(app_root, file)).lines.each_with_index do |line, idx|
+              next unless idx < base_lines.length
+              slots << idx if line != base_lines[idx] && !slots.include?(idx)
             end
           end
           slots.sort!
 
-          locals_map = slots_to_locals(base, slots)
-          @role_templates[role] = build_template(File.read(File.join(app_root, role_files.first)), base, slots, locals_map)
+          locals_map = slots_local_map(base_lines, slots)
+          @role_templates[role] = build_line_template(source, base_lines, slots, locals_map)
           @role_instances[role] ||= {}
           role_files.each_with_index do |file, i|
-            @role_instances[role][file] = locals_for(role_files, i, base, slots, locals_map)
+            @role_instances[role][file] = locals_for(role_files, i, slots, locals_map)
           end
           true
         end
@@ -150,49 +191,55 @@ module Rails
           end
         end
 
-        def slots_to_locals(base, slots)
-          base.each_with_index.with_object({}) do |(token, slot), map|
-            next unless slots.include?(slot)
+        def slots_local_map(base_lines, slots)
+          snake_stem = File.basename(files.first, ".rb").delete_suffix("_#{common_class_suffix.underscore}")
+          base_lines.each_with_index.with_object({}) do |(line, idx), map|
+            next unless slots.include?(idx)
 
-            bare = token.delete_prefix('"')
-            if bare.start_with?(member_class(0)) || bare == member_class(0).delete_suffix(common_class_suffix)
-              map[slot] = :class_name
+            map[idx] = if line.include?(member_class(0))
+              :class_name
+            elsif snake_stem != "" && line.include?(snake_stem)
+              :snake_stem
             else
-              map[slot] = :"v#{map.values.count { |v| v.to_s.start_with?("v") } + 1}"
+              :"v#{map.values.count { |v| v.to_s.start_with?("v") } + 1}"
             end
           end
         end
 
-        def build_template(source, base, slots, locals_map)
-          base.each_with_index do |token, slot|
-            next unless slots.include?(slot)
-
-            source = if locals_map[slot] == :class_name
-              prefix = token[/\A[^A-Za-z0-9]*/] || ""
-              suffix = token[/[^A-Za-z0-9]\z\z/] || ""
-              core = token.delete_prefix(prefix).delete_suffix(suffix)
-              if core == member_class(0).delete_suffix(common_class_suffix)
-                replacement = "#{prefix}<%= class_name %>#{suffix}"
-              else
-                extra = core.delete_prefix(member_class(0))
-                replacement = "#{prefix}<%= class_name %>#{common_class_suffix}#{extra}#{suffix}"
-              end
-              source.gsub(token, replacement)
+        # Line-level slots: a differing line is replaced whole. Name-aware
+        # lines keep templatable names (class name, snake stem) so generated
+        # members inherit correct naming; every other differing line becomes
+        # a verbatim slot (default = first member, overridable via options).
+        def build_line_template(source, base_lines, slots, locals_map)
+          snake_stem = File.basename(files.first, ".rb").delete_suffix("_#{common_class_suffix.underscore}")
+          result = base_lines.dup
+          slots.each do |idx|
+            line = base_lines[idx]
+            result[idx] = case locals_map[idx]
+            when :class_name
+              line = line.gsub(member_class(0), "<%= class_name %>#{common_class_suffix}")
+              stem = member_class(0).delete_suffix(common_class_suffix)
+              line.gsub(/#{stem}(?![a-z_])/, "<%= class_name %>")
+            when :snake_stem
+              line.gsub(/#{snake_stem}(?![a-z_])/, "<%= snake_stem %>")
             else
-              # v-slots carry the whole token verbatim.
-              source.gsub(token, "<%= #{locals_map[slot]} %>")
+              # Verbatim slot: the stored line carries its own newline.
+              "<%= #{locals_map[idx]} %>"
             end
           end
-          source
+          result.join
         end
 
-        def locals_for(role_files, i, base, slots, locals_map)
-          role_tokens = File.read(File.join(app_root, role_files[i])).split
-          locals = { class_name: member_class(i).delete_suffix(common_class_suffix) }
-          role_tokens.each_with_index do |token, slot|
-            next unless slots.include?(slot) && locals_map[slot] != :class_name
+        def locals_for(role_files, i, slots, locals_map)
+          lines = File.read(File.join(app_root, role_files[i])).lines
+          locals = {
+            class_name: member_class(i).delete_suffix(common_class_suffix),
+            snake_stem: File.basename(files[i], ".rb").delete_suffix("_#{common_class_suffix.underscore}")
+          }
+          lines.each_with_index do |line, idx|
+            next unless slots.include?(idx) && locals_map[idx].to_s.start_with?("v")
 
-            locals[locals_map[slot]] = token
+            locals[locals_map[idx]] = line
           end
           locals
         end

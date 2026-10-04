@@ -25,13 +25,14 @@ module Rails
       end
 
       def self.repeated_pattern_findings(app_root, files, context)
-        service_files = files.select { |file| file.start_with?("app/services/") }
-        return [] if service_files.size < 2
+        scoped = files.select { |file| Codify::Generator::FAMILY_DIRS.any? { |dir| file.start_with?("#{dir}/") } }
+        return [] if scoped.size < 2
 
         registry = Registry.new(File.join(app_root, "conformity", "registry.yml"))
-        Codify::Generator.patterns(app_root, files: service_files.map { |file| File.join(app_root, file) })
+        Codify::Generator.patterns(app_root, files: scoped.map { |file| File.join(app_root, file) })
                          .flat_map do |group|
           relative = group.map { |path| path.delete_prefix("#{app_root}/") }
+          family_dir = relative.first.split("/")[1]
           next nil if relative.all? { |path| registry.codified_covers?(path) }
 
           if relative.any? { |path| registry.covers?(path) }
@@ -50,7 +51,7 @@ module Rails
               rule_id: "convention/repeated_pattern",
               severity: Rules.severity_for("convention/repeated_pattern"),
               file: relative.first,
-              message: "#{relative.size} structurally identical services: codify candidate (#{relative.join(", ")})"
+              message: "#{relative.size} structurally identical #{family_dir} files: codify candidate (#{relative.join(", ")})"
             )]
           end
         end.compact

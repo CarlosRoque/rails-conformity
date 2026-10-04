@@ -105,6 +105,33 @@ RSpec.describe Rails::Conformity::Codify::Generator do
     end
   end
 
+  it "detects repeated families in models and jobs, not just services" do
+    MODEL = <<~'RUBY'
+      class %sCalculator < ApplicationRecord
+        def self.public_details
+          { name: name }
+        end
+      end
+    RUBY
+
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "models"))
+      FileUtils.mkdir_p(File.join(dir, "app", "jobs"))
+      %w[subtotal discount].each do |name|
+        File.write(File.join(dir, "app", "models", "#{name}_calculator.rb"), format(MODEL, name.camelize))
+      end
+      File.write(File.join(dir, "app", "jobs", "one_job.rb"), "class OneJob < ApplicationJob\n  def perform\n  end\nend\n")
+      File.write(File.join(dir, "app", "jobs", "two_job.rb"), "class TwoJob < ApplicationJob\n  def perform\n  end\nend\n")
+      File.write(File.join(dir, "app", "jobs", "application_job.rb"), "class ApplicationJob\nend\n")
+
+      groups = described_class.patterns(dir)
+      group_paths = groups.flatten
+      expect(group_paths).to include(*%w[app/models/subtotal_calculator.rb app/models/discount_calculator.rb])
+      expect(group_paths).to include(*%w[app/jobs/one_job.rb app/jobs/two_job.rb])
+      expect(group_paths).not_to include("app/jobs/application_job.rb")
+    end
+  end
+
   it "finds namespaced families and keeps the module wrapper in the template" do
     NS_ALERT = <<~'RUBY'
       module Shipping
