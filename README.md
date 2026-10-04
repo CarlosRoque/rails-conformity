@@ -39,6 +39,7 @@ The install generator:
 
 - Records the baseline from your current findings.
 - Writes `AGENTS.md` and `docs/conventions` from the registry.
+- Ships the agent playbook `.claude/skills/conformity/SKILL.md` (gate loop, codify/reject decisions, hard rules).
 - Wires hooks for git (pre-push), Claude, Codex, and OpenCode.
 
 ### RuboCop config
