@@ -1,5 +1,6 @@
 require "yaml"
 require "fileutils"
+require_relative "skill"
 
 module Rails
   module Conformity
@@ -26,6 +27,7 @@ module Rails
         registry.write
         Renderer.new(app_root, policy, registry).write
         files = Renderer.new(app_root, policy, registry).files.keys
+        files << Skill.new.write(app_root)
         unless hooks.empty?
           files += Hooks.new(app_root).install(hooks)
         end
