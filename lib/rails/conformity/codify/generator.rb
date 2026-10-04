@@ -245,70 +245,66 @@ module Rails
         end
 
         def generator_source(name)
-          suffix = common_class_suffix
-          suffix_snake = suffix.underscore
+          # Quote for emitted Ruby: single-quoted when no interpolation or
+          # escapes are needed (RuboCop's default Style/StringLiterals).
+          ruby_string = lambda do |value|
+            if value.include?('#{') || value.include?('\\') || value.include?("\n")
+              value.inspect
+            else
+              "'#{value.gsub("'", %q(\\'))}'"
+            end
+          end
+
           dest_lines = @roles.keys.map do |role|
             dir, base = File.split(dest_for(role))
             base = base.sub("<<FP>>", '#{file_path}')
-            "        template \"#{name.underscore}#{role == "service" ? "" : "_#{role}"}.rb.tt\", File.join(#{dir.inspect}, \"#{base}\")"
-          end.join("\n")
-
-          call_register = @registration ? "\n        register_member" : ""
-          register_def = ""
-          helper_defs = ""
-          if @registration
-            register_def = <<~RUBY
-                  def register_member
-                    path = #{@registration.path.inspect}
-                    lines = File.readlines(path)
-                    index = lines.index { |line| line.include?(#{@registration.anchor.inspect}) }
-                    abort "conformity: registration anchor missing in #{@registration.path}" unless index
-                    lines.insert(index + 1, ERB.new(#{@registration.line_template.inspect}).result(binding))
-                    File.write(path, lines.join)
-                  end
-            RUBY
-            helper_defs = <<~RUBY
-                  def klass = "\#{class_name}#{suffix}"
-
-                  def stem = "\#{file_name}_#{suffix_snake}"
-
-                  def snake_name = file_name
-            RUBY
+            template_name = name.underscore + (role == "service" ? "" : "_#{role}") + ".rb.tt"
+            "      template " + ruby_string.call(template_name) +
+              ", File.join(" + ruby_string.call(dir) + ", \"" + base + "\")"
           end
 
-          # v-slots vary per member; expose each as an overridable class_option
-          # (default = first family member's value) so the generated generator
-          # runs non-interactively and slots stay correctable per invocation.
-          slot_defaults = (@role_instances["service"]&.first&.last || {}).reject { |k, _| k == :class_name }
-          option_defs = slot_defaults.map do |key, value|
-            "      class_option :#{key}, type: :string, default: #{value.inspect}"
-          end.join("\n")
-          method_defs = slot_defaults.keys.map do |key|
-            "      def #{key} = options[:#{key}]"
-          end.join("\n")
-          option_defs = indented(option_defs)
-          method_defs = indented(method_defs)
-          register_def = indented(register_def)
-          helper_defs = indented(helper_defs)
+          lines = []
+          lines << "# frozen_string_literal: true"
+          lines << ""
+          lines << "require 'erb'" << ""
+          lines << "module Team"
+          lines << "  # Generates family members from the codified team template."
+          lines << "  class #{name.camelize}Generator < Rails::Generators::NamedBase"
+          lines << "    source_root File.expand_path('templates', __dir__)" << ""
+          (@role_instances["service"]&.first&.last || {}).each do |key, value|
+            next if key == :class_name || key == :snake_stem
 
-          <<~RUBY
-            # frozen_string_literal: true
+            lines << "    class_option :#{key}, type: :string, default: #{ruby_string.call(value)}"
+          end
+          lines << "" << "    def create_#{name.underscore}"
+          lines.concat(dest_lines)
+          lines << "" << "      register_member" if @registration
+          lines << "    end" << ""
+          (@role_instances["service"]&.first&.last || {}).each_key do |key|
+            next if key == :class_name || key == :snake_stem
 
-            require "erb"
+            lines << "    def #{key} = options[:#{key}]"
+          end
+          if @registration
+            lines << ""
+            lines << "    def register_member"
+            lines << "      path = #{ruby_string.call(@registration.path)}"
+            lines << "      lines = File.readlines(path)"
+            lines << "      index = lines.index { |line| line.include?(#{ruby_string.call(@registration.anchor)}) }"
+            lines << "      abort 'conformity: registration anchor missing in #{@registration.path}' unless index"
+            lines << "      lines.insert(index + 1, ERB.new(#{ruby_string.call(@registration.line_template)}).result(binding))"
+            lines << "      File.write(path, lines.join)"
+            lines << "    end" << ""
+            lines << "    def klass = \"\#{class_name}#{common_class_suffix}\""
+            lines << ""
+            lines << "    def stem = \"\#{file_name}_#{common_class_suffix.underscore}\""
+            lines << ""
+            lines << "    def snake_name = file_name"
+          end
+          lines << "  end" << "end"
 
-            module Team
-              class #{name.camelize}Generator < Rails::Generators::NamedBase
-                source_root File.expand_path("templates", __dir__)
-            #{option_defs}#{option_defs.empty? ? "" : "\n"}
-                def create_#{name.underscore}
-            #{dest_lines}#{call_register}
-                end
-            #{method_defs}#{method_defs.empty? ? "" : "\n"}#{register_def.chomp}#{register_def.empty? ? "" : "\n"}#{helper_defs.chomp}#{helper_defs.empty? ? "" : "\n"}
-              end
-            end
-          RUBY
+          lines.join("\n") + "\n"
         end
-
         def dest_for(role)
           base_stem = File.basename(files.first, ".rb")
           @roles[role].first.gsub(base_stem, "<<FP>>_#{common_class_suffix.underscore}")

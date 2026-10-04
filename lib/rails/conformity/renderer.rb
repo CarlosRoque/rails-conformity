@@ -201,7 +201,11 @@ module Rails
       end
 
       def reject_notes
-        @registry.rejects.map { |entry| "  - #{entry['paths'].join(', ')}: #{entry['note']}" }.join("\n")
+        entries = @registry.rejects
+        return "" if entries.empty?
+
+        body = entries.map { |entry| "  - #{entry['paths'].join(', ')}: #{entry['note']}" }.join("\n")
+        "- Rejected patterns (recorded decisions — not acceptable, do not copy):\n#{body}"
       end
 
       def steering_topic
