@@ -39,8 +39,30 @@ module Rails
         entries.select { |entry| entry["kind"] == "exemption" }
       end
 
+      def rejects
+        entries.select { |entry| entry["kind"] == "reject" }
+      end
+
+      # True when a rejected pattern covers the file (exact path or prefix).
+      def covers?(relative_path)
+        rejects.any? do |entry|
+          Array(entry["paths"]).any? do |covered|
+            relative_path == covered || relative_path.start_with?("#{covered}/")
+          end
+        end
+      end
+
       def codified
         entries.select { |entry| %w[cop generator].include?(entry["kind"]) }
+      end
+
+      def codified_paths
+        codified.flat_map { |entry| Array(entry["paths"]) }
+      end
+
+      # True when a codified generator/cop covers the file (exact or prefix).
+      def codified_covers?(relative_path)
+        codified_paths.any? { |covered| relative_path == covered || relative_path.start_with?("#{covered}/") }
       end
 
       def write

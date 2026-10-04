@@ -15,6 +15,7 @@ module Rails
         "convention/rescue_nil" => { "severity" => "error", "topic" => "style", "tier" => "always" },
         "convention/unsanitized_find" => { "severity" => "warning", "topic" => "controllers", "tier" => "always" },
         "convention/repeated_pattern" => { "severity" => "info", "topic" => "codify", "tier" => "ask" },
+        "convention/rejected_pattern" => { "severity" => "info", "topic" => "codify", "tier" => "ask" },
         "convention/pending_migration" => { "severity" => "error", "topic" => "database", "tier" => "always" },
         "convention/failing_tests" => { "severity" => "error", "topic" => "tests", "tier" => "always" },
         "convention/zeitwerk_error" => { "severity" => "error", "topic" => "tests", "tier" => "always" },

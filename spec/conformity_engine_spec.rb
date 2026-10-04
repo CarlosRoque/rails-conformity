@@ -211,6 +211,57 @@ RSpec.describe Rails::Conformity::Codify::Generator do
   end
 end
 
+RSpec.describe Rails::Conformity::Registry do
+  it "answers whether a rejected pattern covers a file" do
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "conformity"))
+      registry = Rails::Conformity::Registry.new(File.join(dir, "conformity", "registry.yml"))
+      registry.add(
+        "id" => "reject-legacy", "kind" => "reject", "paths" => %w[app/services/legacy_import.rb],
+        "note" => "TODO: refactor; do not copy this pattern", "created_from" => "triage"
+      )
+
+      expect(registry.covers?("app/services/legacy_import.rb")).to be true
+      expect(registry.covers?("app/services/legacy_import.rb/helpers.rb")).to be true
+      expect(registry.covers?("app/services/fare_quote.rb")).to be false
+    end
+  end
+end
+
+RSpec.describe Rails::Conformity::Report do
+  it "annotates rejected pattern groups instead of suggesting codify" do
+    ALERT = <<~'RUBY'
+      class %sAlert
+        def call
+          "%s alert: needs attention"
+        end
+      end
+    RUBY
+
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "app", "services"))
+      FileUtils.mkdir_p(File.join(dir, "conformity"))
+      %w[route dock].each do |name|
+        File.write(File.join(dir, "app", "services", "#{name}_alert.rb"), format(ALERT, name.camelize, name.camelize))
+      end
+      registry = Rails::Conformity::Registry.new(File.join(dir, "conformity", "registry.yml"))
+      registry.add(
+        "id" => "reject-alerts", "kind" => "reject", "paths" => %w[app/services/route_alert.rb],
+        "note" => "TODO: refactor into notifier; do not copy", "created_from" => "triage"
+      )
+
+      report = Rails::Conformity::Report.build(
+        app_root: dir, policy: Rails::Conformity::Policy.new,
+        providers: [], files: %w[app/services/route_alert.rb app/services/dock_alert.rb]
+      )
+      finding = report.findings.find { |f| f.rule_id == "convention/rejected_pattern" }
+      expect(finding).to be_present
+      expect(finding.message).to include("TODO: refactor into notifier; do not copy")
+      expect(report.findings).not_to include(an_object_having_attributes(rule_id: "convention/repeated_pattern"))
+    end
+  end
+end
+
 RSpec.describe Rails::Conformity::Renderer do
   it "renders deterministic, byte-identical steering files with no timestamps" do
     Dir.mktmpdir do |dir|

@@ -196,7 +196,12 @@ module Rails
           - Codify as generator: `bin/rails conformity:codify_generator[app/services/a.rb,app/services/b.rb]`
           - Acceptance is deterministic: the round-trip test must reproduce every original file from the template.
           - A proposed custom cop is accepted only when the corpus test fires on every positive example and stays silent on every negative.
+          #{reject_notes}
         MARKDOWN
+      end
+
+      def reject_notes
+        @registry.rejects.map { |entry| "  - #{entry['paths'].join(', ')}: #{entry['note']}" }.join("\n")
       end
 
       def steering_topic

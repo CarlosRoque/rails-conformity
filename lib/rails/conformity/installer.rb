@@ -52,7 +52,7 @@ module Rails
         decisions = []
         report.findings.each do |finding|
           puts "#{finding.rule_id}: #{finding.file} — #{finding.message}"
-          print "[c]odify / [e]xempt / [k]eep in baseline? "
+          print "[c]odify / [e]xempt / [r]eject / [k]eep in baseline? "
           answer = $stdin.gets.to_s.strip
           case answer
           when "c"
@@ -62,6 +62,7 @@ module Rails
               "kind" => "generator",
               "description" => finding.message,
               "command" => "bin/rails conformity:codify_generator[#{finding.file}]",
+              "paths" => [finding.file],
               "created_from" => finding.rule_id
             )
           when "e"
@@ -72,6 +73,18 @@ module Rails
               "path" => File.dirname(finding.file),
               "rules" => [finding.rule_id],
               "expires_on" => (Date.today >> 6).iso8601,
+              "created_from" => finding.rule_id
+            )
+          when "r"
+            decisions << { rule_id: finding.rule_id, decision: "reject" }
+            print "reject note (blank = TODO: refactor; do not copy this pattern): "
+            note = $stdin.gets.to_s.strip
+            note = "TODO: refactor; do not copy this pattern" if note.empty?
+            registry.add(
+              "id" => "reject-#{finding.rule_id.tr("/", "-")}-#{File.basename(finding.file, ".*")}",
+              "kind" => "reject",
+              "paths" => [finding.file],
+              "note" => note,
               "created_from" => finding.rule_id
             )
           else

@@ -47,6 +47,8 @@ module Rails
             manual(finding, note: "Move domain math out of the action into an app/services object; see docs/conventions/controllers.md")
           when "convention/repeated_pattern"
             codify_generator(finding, context)
+          when "convention/rejected_pattern"
+            manual(finding, note: "Pattern recorded as not acceptable; refactor on touch, do not copy (see docs/conventions/codify.md)")
           when "conformity/steering_drift"
             autocorrect(finding, command: "bin/rails conformity:sync", note: "Steering files are stale relative to the registry")
           else

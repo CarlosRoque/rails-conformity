@@ -71,7 +71,9 @@ namespace :conformity do
     options = Rails::Conformity::TaskHelpers.parse_args(args)
     mode = options.fetch("mode", "ratchet")
     result = Rails::Conformity::Installer.new(Rails.root).first_run(mode: mode)
-    puts "conformity: first_run (#{result[:mode]}) — #{result[:findings] || result[:decisions]&.size} finding(s) recorded"
+    count = result[:findings] || result[:decisions]&.size
+    suffix = count ? " — #{count} finding(s) recorded" : ""
+    puts "conformity: first_run (#{result[:mode]})#{suffix}"
   end
 
   desc "Regenerate AGENTS.md and docs/conventions from the registry"
@@ -108,6 +110,7 @@ namespace :conformity do
       "kind" => "generator",
       "description" => "#{name.camelize} services are generated, never hand-written",
       "command" => "bin/rails g team:#{name} <Name>",
+      "paths" => generator.files,
       "created_from" => "convention/repeated_pattern"
     }
     entry["register"] = register if register

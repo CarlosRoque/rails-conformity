@@ -28,16 +28,32 @@ module Rails
         service_files = files.select { |file| file.start_with?("app/services/") }
         return [] if service_files.size < 2
 
-        Codify::Generator.patterns(app_root, files: service_files.map { |file| File.join(app_root, file) }).flat_map do |group|
+        registry = Registry.new(File.join(app_root, "conformity", "registry.yml"))
+        Codify::Generator.patterns(app_root, files: service_files.map { |file| File.join(app_root, file) })
+                         .flat_map do |group|
           relative = group.map { |path| path.delete_prefix("#{app_root}/") }
-          context[relative.first] = { pattern_group: relative }
-          [Finding.new(
-            rule_id: "convention/repeated_pattern",
-            severity: Rules.severity_for("convention/repeated_pattern"),
-            file: relative.first,
-            message: "#{relative.size} structurally identical services: codify candidate (#{relative.join(", ")})"
-          )]
-        end
+          next nil if relative.all? { |path| registry.codified_covers?(path) }
+
+          if relative.any? { |path| registry.covers?(path) }
+            # Rejected pattern: keep it visible, annotated — do not suggest codify.
+            reject = registry.rejects.find { |entry| Array(entry["paths"]).any? { |p| relative.any? { |path| path == p || path.start_with?("#{p}/") } } }
+            note = reject && reject["note"] || "TODO: refactor; do not copy this pattern"
+            [Finding.new(
+              rule_id: "convention/rejected_pattern",
+              severity: Rules.severity_for("convention/rejected_pattern"),
+              file: relative.first,
+              message: "#{note} (#{relative.size} files: #{relative.join(", ")})"
+            )]
+          else
+            context[relative.first] = { pattern_group: relative }
+            [Finding.new(
+              rule_id: "convention/repeated_pattern",
+              severity: Rules.severity_for("convention/repeated_pattern"),
+              file: relative.first,
+              message: "#{relative.size} structurally identical services: codify candidate (#{relative.join(", ")})"
+            )]
+          end
+        end.compact
       end
 
       def self.context_for(app_root, files)

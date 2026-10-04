@@ -167,20 +167,21 @@ module Rails
           base.each_with_index do |token, slot|
             next unless slots.include?(slot)
 
-            prefix = token[/\A[^A-Za-z0-9]*/] || ""
-            suffix = token[/[^A-Za-z0-9]\z\z/] || ""
-            core = token.delete_prefix(prefix).delete_suffix(suffix)
-            replacement = if locals_map[slot] == :class_name
+            source = if locals_map[slot] == :class_name
+              prefix = token[/\A[^A-Za-z0-9]*/] || ""
+              suffix = token[/[^A-Za-z0-9]\z\z/] || ""
+              core = token.delete_prefix(prefix).delete_suffix(suffix)
               if core == member_class(0).delete_suffix(common_class_suffix)
-                "#{prefix}<%= class_name %>#{suffix}"
+                replacement = "#{prefix}<%= class_name %>#{suffix}"
               else
                 extra = core.delete_prefix(member_class(0))
-                "#{prefix}<%= class_name %>#{common_class_suffix}#{extra}#{suffix}"
+                replacement = "#{prefix}<%= class_name %>#{common_class_suffix}#{extra}#{suffix}"
               end
+              source.gsub(token, replacement)
             else
-              "#{prefix}<%= #{locals_map[slot]} %>#{suffix}"
+              # v-slots carry the whole token verbatim.
+              source.gsub(token, "<%= #{locals_map[slot]} %>")
             end
-            source = source.gsub(token, replacement) if source.include?(token)
           end
           source
         end
@@ -227,6 +228,19 @@ module Rails
                   def snake_name = file_name
             RUBY
           end
+
+          # v-slots vary per member; expose each as an overridable class_option
+          # (default = first family member's value) so the generated generator
+          # runs non-interactively and slots stay correctable per invocation.
+          slot_defaults = (@role_instances["service"]&.first&.last || {}).reject { |k, _| k == :class_name }
+          option_defs = slot_defaults.map do |key, value|
+            "      class_option :#{key}, type: :string, default: #{value.inspect}"
+          end.join("\n")
+          method_defs = slot_defaults.keys.map do |key|
+            "      def #{key} = options[:#{key}]"
+          end.join("\n")
+          option_defs = indented(option_defs)
+          method_defs = indented(method_defs)
           register_def = indented(register_def)
           helper_defs = indented(helper_defs)
 
@@ -238,11 +252,11 @@ module Rails
             module Team
               class #{name.camelize}Generator < Rails::Generators::NamedBase
                 source_root File.expand_path("templates", __dir__)
-
+            #{option_defs}#{option_defs.empty? ? "" : "\n"}
                 def create_#{name.underscore}
             #{dest_lines}#{call_register}
                 end
-            #{register_def.chomp}#{register_def.empty? ? "" : "\n"}#{helper_defs.chomp}#{helper_defs.empty? ? "" : "\n"}
+            #{method_defs}#{method_defs.empty? ? "" : "\n"}#{register_def.chomp}#{register_def.empty? ? "" : "\n"}#{helper_defs.chomp}#{helper_defs.empty? ? "" : "\n"}
               end
             end
           RUBY

@@ -25,18 +25,29 @@ module Rails
 
       def tracked_files
         tracked = git("ls-files").lines.map(&:strip)
-        untracked = git("status --porcelain").lines.map do |line|
-          line[3..]&.strip
-        end.compact.reject { |entry| entry.end_with?("/") }
-        (tracked + untracked).uniq.select { |file| file.match?(INTERESTING) && File.exist?(File.join(app_root, file)) }
+        (tracked + untracked_files).uniq.select { |file| file.match?(INTERESTING) && File.exist?(File.join(app_root, file)) }
       end
 
       def changed_files(base: "HEAD")
         diff = git("diff --name-only #{base}").lines.map(&:strip)
-        untracked = git("status --porcelain").lines.map do |line|
-          line[3..]&.strip
-        end.compact.select { |entry| !entry.end_with?("/") }
-        (diff + untracked).uniq.select { |file| file.match?(INTERESTING) && File.exist?(File.join(app_root, file)) }
+        (diff + untracked_files).uniq.select { |file| file.match?(INTERESTING) && File.exist?(File.join(app_root, file)) }
+      end
+
+      # `git status --porcelain` collapses freshly-created directories to a
+      # single `?? dir/` entry; expand them so files inside count too.
+      def untracked_files
+        git("status --porcelain").lines.filter_map do |line|
+          entry = line[3..]&.strip
+          next unless entry && entry != ""
+
+          if entry.end_with?("/")
+            Dir.glob(File.join(app_root, entry, "**", "*"))
+              .select { |path| File.file?(path) }
+              .map { |path| path.delete_prefix("#{app_root}/") }
+          else
+            entry
+          end
+        end.flatten
       end
 
       def changed_lines(files, base: "HEAD")
@@ -88,7 +99,7 @@ module Rails
       def record_baseline(full_verify: false)
         report, = report(files: tracked_files, detail: :summary, full_verify: full_verify)
         baseline.record(report.findings, score: report.score)
-        [report.findings.size, report.score]
+        [baseline.finding_keys.size, report.score]
       end
 
       private

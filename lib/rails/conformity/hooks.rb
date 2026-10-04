@@ -51,13 +51,35 @@ module Rails
             file = input.dig("tool_input", "file_path") || input.dig("tool_input", "path") || input.dig("tool_input", "file")
             exit 0 unless file && file.end_with?(".rb")
 
+            require "yaml"
+            baseline = begin
+              YAML.safe_load_file("conformity/baseline.yml")
+            rescue StandardError
+              {}
+            end || {}
+            allowed = Array(baseline["findings"]).map(&:to_s)
+
             catalog = `bundle exec rubocop --no-color --only __CATALOG_COPS__ "#{file}" 2>&1`
             team = `bundle exec rubocop --no-color "#{file}" 2>&1`
-            offenses = (catalog + team).lines.select { |line| line.match?(/:\d+:\d+: [CW]:/) }
-            if offenses.empty?
+            fresh = (catalog + team).lines
+              .map(&:strip)
+              .select { |line| line.match?(/:\d+:\d+: [CWE]:/) }
+              .uniq
+              .reject do |line|
+                cop = line[/\[Correctable\] ([A-Z][A-Za-z\/]+): /, 1] || line[/: [CWE]: ([A-Z][A-Za-z\/]+): /, 1]
+                key = if cop == "Style/FrozenStringLiteralComment"
+                  "convention/frozen_string_literal:#{file}"
+                elsif cop == "Lint/SuppressedException"
+                  "convention/rescue_nil:#{file}"
+                else
+                  "rubocop/#{cop}:#{file}"
+                end
+                allowed.include?(key)
+              end
+            if fresh.empty?
               exit 0
             else
-              warn offenses.map(&:strip).first(5)
+              warn fresh.first(5)
               exit 2
             end
           when "changed-check"
