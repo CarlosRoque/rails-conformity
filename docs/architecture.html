@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rails-conformity — architecture</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --line: #2d3748;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --amber: #d29922; --red: #f85149; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px;
+  }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  h1 code { color: var(--accent); }
+  .sub { color: var(--muted); margin-bottom: 28px; }
+  h2 { font-size: 18px; margin: 36px 0 12px; color: var(--text); }
+  h2 .n { color: var(--accent); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .box { fill: var(--panel2); stroke: var(--line); rx: 8; }
+  .box-accent { fill: #12263f; stroke: var(--accent); }
+  .box-green { fill: #0f2c1a; stroke: var(--green); }
+  .box-amber { fill: #302a08; stroke: var(--amber); }
+  .box-red { fill: #331110; stroke: var(--red); }
+  .box-purple { fill: #241633; stroke: var(--purple); }
+  text { fill: var(--text); font-family: inherit; }
+  .t-title { font-size: 13px; font-weight: 600; fill: var(--text); }
+  .t-sub { font-size: 11px; fill: var(--muted); }
+  .t-label { font-size: 11px; fill: var(--accent); }
+  .t-zone { font-size: 13px; font-weight: 700; letter-spacing: .08em; fill: var(--muted); }
+  .flow { stroke: var(--accent); stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+  .flow-amber { stroke: var(--amber); }
+  .flow-green { stroke: var(--green); }
+  .flow-red { stroke: var(--red); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .card h3 { font-size: 14px; margin-bottom: 8px; color: var(--accent); }
+  .card ul { margin-left: 18px; }
+  .card li { margin: 6px 0; font-size: 14px; }
+  code { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: #a5d6ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
+  th { color: var(--muted); font-weight: 600; background: var(--panel); }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12px; border: 1px solid; }
+  .b-green { color: var(--green); border-color: var(--green); }
+  .b-red { color: var(--red); border-color: var(--red); }
+  .b-amber { color: var(--amber); border-color: var(--amber); }
+  .b-purple { color: var(--purple); border-color: var(--purple); }
+</style>
+</head>
+<body>
+
+<h1><code>rails-conformity</code> — architecture</h1>
+<p class="sub">One registry drives everything: the gate blocks new violations, the ratchet absorbs old debt, and the codifier turns approved patterns back into conventions.</p>
+
+<h2>The diagram</h2>
+
+<svg viewBox="0 0 1160 780" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9" fill="none" stroke="context-stroke" stroke-width="1.4"/>
+    </marker>
+  </defs>
+
+  <!-- zones -->
+  <text x="24" y="34" class="t-zone">SOURCE OF TRUTH</text>
+  <text x="420" y="34" class="t-zone">DECIDE</text>
+  <text x="760" y="34" class="t-zone">STEER</text>
+
+  <!-- registry -->
+  <rect x="24" y="60" width="240" height="110" rx="8" class="box-accent"/>
+  <text x="44" y="88" class="t-title">conformity/registry.yml</text>
+  <text x="44" y="108" class="t-sub">source of truth</text>
+  <text x="44" y="128" class="t-sub">generators · cops · exemptions</text>
+  <text x="44" y="146" class="t-sub">rejects (kind: reject + TODO note)</text>
+  <text x="44" y="164" class="t-sub">policy: config/conformity.yml</text>
+
+  <!-- renderer -->
+  <rect x="420" y="60" width="180" height="66" rx="8" class="box"/>
+  <text x="440" y="88" class="t-title">Renderer</text>
+  <text x="440" y="106" class="t-sub">bin/rails conformity:sync</text>
+
+  <!-- steering -->
+  <rect x="760" y="44" width="230" height="46" rx="8" class="box"/>
+  <text x="780" y="72" class="t-title">AGENTS.md</text>
+  <rect x="760" y="108" width="230" height="46" rx="8" class="box"/>
+  <text x="780" y="136" class="t-title">docs/conventions/*.md</text>
+
+  <!-- skill -->
+  <rect x="760" y="172" width="230" height="46" rx="8" class="box"/>
+  <text x="780" y="200" class="t-title">.claude/skills/conformity/SKILL.md</text>
+
+  <!-- engine -->
+  <rect x="420" y="190" width="180" height="120" rx="8" class="box"/>
+  <text x="440" y="218" class="t-title">Engine</text>
+  <text x="440" y="238" class="t-sub">providers scan changed files:</text>
+  <text x="440" y="256" class="t-sub">convention rules (regex)</text>
+  <text x="440" y="272" class="t-sub">rubocop · verify (suite)</text>
+  <text x="440" y="288" class="t-sub">provenance · steering drift</text>
+  <text x="440" y="304" class="t-sub">→ findings + recommendations</text>
+
+  <!-- family scanner -> engine feed -->
+  <rect x="24" y="230" width="240" height="80" rx="8" class="box-purple"/>
+  <text x="44" y="258" class="t-title">Family scanner</text>
+  <text x="44" y="276" class="t-sub">app/services · models · jobs · controllers</text>
+  <text x="44" y="294" class="t-sub">digest groups → round-trip gate</text>
+
+  <!-- report -->
+  <rect x="420" y="360" width="180" height="72" rx="8" class="box"/>
+  <text x="440" y="388" class="t-title">Report</text>
+  <text x="440" y="406" class="t-sub">findings · score · fix commands</text>
+  <text x="440" y="422" class="t-sub">repeated_pattern candidates</text>
+
+  <!-- baseline -->
+  <rect x="24" y="400" width="240" height="96" rx="8" class="box-amber"/>
+  <text x="44" y="428" class="t-title">conformity/baseline.yml</text>
+  <text x="44" y="448" class="t-sub">the ratchet</text>
+  <text x="44" y="466" class="t-sub">known keys = rule:file</text>
+  <text x="44" y="484" class="t-sub">old debt allowed · new blocked</text>
+
+  <!-- gate -->
+  <rect x="420" y="520" width="180" height="96" rx="8" class="box-green"/>
+  <text x="440" y="548" class="t-title">Gate — conformity:check</text>
+  <text x="440" y="568" class="t-sub">0 green · 2 new findings</text>
+  <text x="440" y="586" class="t-sub">runs suite (full verify)</text>
+
+  <!-- hooks -->
+  <rect x="760" y="430" width="230" height="140" rx="8" class="box"/>
+  <text x="780" y="458" class="t-title">Hooks</text>
+  <text x="780" y="478" class="t-sub">bin/conformity edit-check</text>
+  <text x="780" y="494" class="t-sub">per edit · baseline-aware · no boot</text>
+  <text x="780" y="514" class="t-sub">changed-check → full gate</text>
+  <text x="780" y="538" class="t-sub">wires: Claude · Codex · OpenCode</text>
+  <text x="780" y="556" class="t-sub">.git/hooks/pre-push</text>
+
+  <!-- triage -->
+  <rect x="420" y="660" width="180" height="84" rx="8" class="box-amber"/>
+  <text x="440" y="688" class="t-title">Triage</text>
+  <text x="440" y="708" class="t-sub">[c]odify · [e]xempt · [r]eject · [k]eep</text>
+  <text x="440" y="726" class="t-sub">decisions land in the registry</text>
+
+  <!-- codify -->
+  <rect x="760" y="640" width="230" height="104" rx="8" class="box-purple"/>
+  <text x="780" y="668" class="t-title">Codify</text>
+  <text x="780" y="688" class="t-sub">codify_generator → team generator</text>
+  <text x="780" y="704" class="t-sub">(round-trip: rebuild originals byte-exact)</text>
+  <text x="780" y="720" class="t-sub">codify_cop → cop + corpus test</text>
+
+  <!-- arrows -->
+  <path d="M264,93 H420" class="flow"/>
+  <text x="300" y="86" class="t-label">registry + policy</text>
+
+  <path d="M600,93 V126" class="flow"/>
+  <path d="M600,126 H760" class="flow"/>
+  <path d="M600,126 V195 H760" class="flow"/>
+  <text x="628" y="188" class="t-label">rendered</text>
+
+  <!-- registry -> engine -->
+  <path d="M264,160 C340,160 340,240 420,245" class="flow"/>
+  <text x="316" y="210" class="t-label">rules</text>
+
+  <!-- scanner -> engine + report -->
+  <path d="M264,270 H420" class="flow"/><text x="300" y="263" class="t-label">candidates</text>
+
+  <!-- engine -> report -->
+  <path d="M510,310 V360" class="flow"/>
+
+  <!-- report -> baseline / gate / hooks -->
+  <path d="M510,432 V520" class="flow"/><text x="522" y="480" class="t-label">findings</text>
+  <path d="M420,432 H264" class="flow flow-amber"/><text x="290" y="425" class="t-label">absorb old debt</text>
+
+  <!-- baseline -> gate -->
+  <path d="M264,480 C340,480 340,556 420,560" class="flow flow-amber"/>
+  <text x="300" y="545" class="t-label">allows known keys</text>
+
+  <!-- gate -> hooks -->
+  <path d="M600,566 H760" class="flow"/><text x="628" y="559" class="t-label">changed-check</text>
+
+  <!-- gate green -> steering ok / red -> triage -->
+  <path d="M510,616 V660" class="flow flow-red"/>
+  <text x="522" y="648" class="t-label" style="fill:var(--red)">exit 2 → decide</text>
+
+  <!-- triage -> registry -->
+  <path d="M420,700 C340,700 340,180 264,150" class="flow flow-amber"/>
+  <text x="300" y="690" class="t-label" style="fill:var(--amber)">decisions</text>
+
+  <!-- triage -> codify -->
+  <path d="M600,700 H760" class="flow"/><text x="640" y="693" class="t-label">[c]odify</text>
+
+  <!-- codify -> registry (closes loop) -->
+  <path d="M990,640 C1010,560 1010,460 600,180 C560,150 560,130 600,110" class="flow flow-red" style="stroke:var(--purple)"/>
+  <text x="1010" y="330" class="t-label" style="fill:var(--purple)">registers generator/cop</text>
+  <text x="1010" y="348" class="t-label" style="fill:var(--purple)">steering re-renders</text>
+
+  <!-- hooks badge -->
+  <rect x="760" y="596" width="230" height="30" rx="15" class="box"/>
+  <text x="875" y="616" class="t-label" style="fill:var(--green); text-anchor:middle">agent edits stopped before commit</text>
+</svg>
+
+<h2><span class="n">1.</span> How it works, in order</h2>
+<div class="cols">
+  <div class="card">
+    <h3> Measure (install + report)</h3>
+    <ul>
+      <li><code>conformity:install</code> writes the policy, an empty registry, and the <em>baseline</em>: every current violation becomes a <code>rule:file</code> key. The app starts green, in debt.</li>
+      <li><code>conformity:report</code> scans changed files through four providers: convention rules (regex), rubocop, the test suite, and provenance vs generator output. Each finding gets a score and a recommended fix command.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3> Gate (every push, every edit)</h3>
+    <ul>
+      <li><code>conformity:check</code> re-runs the providers and compares against the baseline. <span class="badge b-green">exit 0</span> nothing new. <span class="badge b-red">exit 2</span> new findings on stderr — CI or the pre-push hook stops the push.</li>
+      <li><code>bin/conformity edit-check</code> is the fast path for agent hooks: no Rails boot, reads the baseline as plain YAML, flags only findings the baseline doesn't cover. Legacy debt files pass silently.</li>
+      <li><code>changed-check</code> escalates to the full gate (runs the suite).</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3> Decide (triage)</h3>
+    <ul>
+      <li><code>conformity:triage</code> walks every finding. Each one gets exactly one of four decisions, stored in the registry: <span class="badge b-green">codify</span> it's a convention, <span class="badge b-amber">exempt</span> allowed but dated, <span class="badge b-red">reject</span> not acceptable + TODO note, <span class="badge b-purple">keep</span> undecided.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3> Codify (close the loop)</h3>
+    <ul>
+      <li>The family scanner groups structurally identical files in <code>app/services</code>, <code>models</code>, <code>jobs</code>, <code>controllers</code> by a loose digest, then only surfaces groups that pass the <strong>round-trip test</strong>: the extracted template must rebuild every original byte-for-byte.</li>
+      <li><code>codify_generator</code> writes a real Rails generator (<code>bin/rails g team:pattern Name</code>) plus the test-role template (rspec or minitest, whichever the family has) and registers it.</li>
+      <li><code>codify_cop</code> writes a RuboCop cop and admits it only after a <strong>corpus test</strong>: fires on every bad example, silent on every good one.</li>
+      <li>Both register paths into the registry — steering re-renders, provenance starts watching, and the family stops nagging as a candidate.</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="n">2.</span> What lands in a host app</h2>
+
+<table>
+  <tr><th>Path</th><th>Role</th></tr>
+  <tr><td><code>conformity/registry.yml</code></td><td>Source of truth: generators, cops, exemptions, rejects. Hand-edits are legit; steering derives from it.</td></tr>
+  <tr><td><code>conformity/baseline.yml</code></td><td>The ratchet. Deduped <code>rule:file</code> keys of known debt + score. Only shrinks through fixes.</td></tr>
+  <tr><td><code>config/conformity.yml</code></td><td>Policy: score weights, thresholds, provider strictness (<code>strict</code>/<code>advisory</code>), decision routing.</td></tr>
+  <tr><td><code>AGENTS.md</code> + <code>docs/conventions/*</code></td><td>Rendered steering. Never hand-edit; gate flags drift.</td></tr>
+  <tr><td><code>.claude/skills/conformity/SKILL.md</code></td><td>The agent playbook: hard rules, gate loop, codify/reject walkthrough.</td></tr>
+  <tr><td><code>bin/conformity</code></td><td>No-boot shim: <code>edit-check</code>, <code>changed-check</code>. Read by all host hooks.</td></tr>
+  <tr><td><code>.claude/settings.json</code> · <code>.codex/hooks.json</code> · <code>opencode.json</code> · <code>.git/hooks/pre-push</code></td><td>Host wirings. Same evaluator, four consumers.</td></tr>
+  <tr><td><code>lib/generators/team/*</code> · <code>lib/rubocop/cop/convention/*</code></td><td>Codify outputs: the generator + templates; the corpus-tested cop.</td></tr>
+</table>
+
+<h2><span class="n">3.</span> The rules ladder</h2>
+<p>Rules flow downward as they mature. Codify is the mechanism.</p>
+<table>
+  <tr><th>Tier</th><th>Where</th><th>Examples</th></tr>
+  <tr><td>Judgment · after</td><td>review, security review</td><td>&ldquo;stop using raw SQL&rdquo; in a PR comment</td></tr>
+  <tr><td>Deterministic · after</td><td>cops, specs, CI, the gate</td><td><code>NoRawSqlWhere</code>, missing-tests rule, pre-push gate</td></tr>
+  <tr><td>Deterministic · before</td><td>generators, tool permissions, hooks</td><td><code>bin/rails g team:alert Fog</code> — never written by hand</td></tr>
+</table>
+
+<p class="muted" style="margin-top:28px">rails-conformity v0.1.x — engine, providers, codify, renderer, installer, hooks, skill. Generated for docs; regenerable by hand from the same source of truth.</p>
+
+</body>
+</html>
