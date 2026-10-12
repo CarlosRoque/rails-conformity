@@ -14,9 +14,11 @@ module Rails
           @app_root = app_root
         end
 
-        def call(files:, full: false)
+        def call(files:, full: false, progress: nil)
           ruby_files = files.select { |file| file.end_with?(".rb") }
           return [] if ruby_files.empty?
+
+          progress&.call("linting #{ruby_files.size} file#{'s' if ruby_files.size != 1}")
 
           catalog = run(ruby_files, "--only", COP_MAP.keys.join(","))
           team = run(ruby_files)

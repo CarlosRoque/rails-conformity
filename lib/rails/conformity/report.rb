@@ -5,8 +5,8 @@ module Rails
     class Report
       attr_reader :files, :findings, :recommendations, :score, :file_scores, :summary
 
-      def self.build(app_root:, policy:, providers:, files:, changed_lines: {}, full_verify: false)
-        findings = providers.flat_map { |provider| provider.call(files: files, full: full_verify) }
+      def self.build(app_root:, policy:, providers:, files:, changed_lines: {}, full_verify: false, progress: nil)
+        findings = providers.flat_map { |provider| provider.call(files: files, full: full_verify, progress: progress) }
         findings = dedupe(findings)
         context = context_for(app_root, files)
         findings.concat(repeated_pattern_findings(app_root, files, context))

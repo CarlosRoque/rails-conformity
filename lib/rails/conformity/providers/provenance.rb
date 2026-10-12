@@ -8,7 +8,7 @@ module Rails
           @app_root = app_root
         end
 
-        def call(files:, full: false)
+        def call(files:, full: false, progress: nil)
           findings = []
           files.each do |file|
             match = file.match(%r{app/controllers/(\w+)_controller\.rb})

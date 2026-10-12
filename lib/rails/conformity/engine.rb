@@ -58,11 +58,11 @@ module Rails
         files.to_h { |file| [file, numstat.fetch(file, 1)] }
       end
 
-      def report(files:, detail: :findings, full_verify: false, base: nil)
+      def report(files:, detail: :findings, full_verify: false, base: nil, progress: nil)
         lines = base ? changed_lines(files, base: base) : {}
         report = Report.build(
           app_root: app_root, policy: policy, providers: providers,
-          files: files, changed_lines: lines, full_verify: full_verify
+          files: files, changed_lines: lines, full_verify: full_verify, progress: progress
         )
         [report, report.to_json(detail: detail)]
       end
@@ -79,10 +79,10 @@ module Rails
         Registry.load(app_root)
       end
 
-      def check(full_verify: true)
+      def check(full_verify: true, progress: nil)
         findings = Report.build(
           app_root: app_root, policy: policy, providers: providers,
-          files: tracked_files, full_verify: full_verify
+          files: tracked_files, full_verify: full_verify, progress: progress
         ).findings
         findings.concat(Renderer.new(app_root, policy, registry).drift_findings)
         findings = findings.uniq { |finding| [finding.rule_id, finding.file, finding.line] }

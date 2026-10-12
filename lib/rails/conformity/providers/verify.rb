@@ -8,19 +8,42 @@ module Rails
           @app_root = app_root
         end
 
-        def call(files: [], full: false)
-          findings = pending_migration_findings
+        def call(files: [], full: false, progress: nil)
+          findings = pending_migration_findings(progress)
           if full
-            findings.concat(test_findings)
-            findings.concat(zeitwerk_findings)
+            findings.concat(test_findings(progress))
+            findings.concat(zeitwerk_findings(progress))
           end
           findings
         end
 
         private
 
-        def pending_migration_findings
-          stdout, _stderr, _status = Open3.capture3("bin/rails", "db:migrate:status", chdir: @app_root)
+        # Prints "\rconformity: <label> (Ns)" to stderr (updates in place),
+        # finalizing to its own line when done. Stdout stays clean.
+        def run_with_progress(cmd, label, progress)
+          return Open3.capture3(*cmd, chdir: @app_root) unless progress
+
+          stop = false
+          started = Time.now
+          ticker = Thread.new do
+            until stop
+              $stderr.write("\rconformity: #{label} (#{(Time.now - started).to_i}s)   ")
+              sleep 1
+            end
+          end
+          stdout, stderr, status = Open3.capture3(*cmd, chdir: @app_root)
+          stop = true
+          ticker.wakeup
+          ticker.join
+          $stderr.write("\r#{' ' * 72}\rconformity: done #{label}\n")
+          [stdout, stderr, status]
+        rescue StandardError
+          Open3.capture3(*cmd, chdir: @app_root)
+        end
+
+        def pending_migration_findings(progress)
+          stdout, = run_with_progress(["bin/rails", "db:migrate:status"], "checking migrations", progress)
           stdout.lines.select { |line| line.match?(/\sdown\s|NO FILE/) }.map do |line|
             Finding.new(
               rule_id: "convention/pending_migration",
@@ -31,8 +54,8 @@ module Rails
           end
         end
 
-        def test_findings
-          _stdout, _stderr, status = Open3.capture3("bin/rails", "test", chdir: @app_root)
+        def test_findings(progress)
+          _stdout, _stderr, status = run_with_progress(["bin/rails", "test"], "running test suite", progress)
           return [] if status.success?
 
           [Finding.new(
@@ -43,8 +66,8 @@ module Rails
           )]
         end
 
-        def zeitwerk_findings
-          stdout, _stderr, status = Open3.capture3("bin/rails", "zeitwerk:check", chdir: @app_root)
+        def zeitwerk_findings(progress)
+          stdout, _stderr, status = run_with_progress(["bin/rails", "zeitwerk:check"], "checking constants", progress)
           return [] if status.success?
 
           [Finding.new(

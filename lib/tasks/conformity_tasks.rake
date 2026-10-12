@@ -41,7 +41,8 @@ namespace :conformity do
   desc "Gate check: exit 0 green, exit 2 with new findings on stderr"
   task check: :environment do
     engine = Rails::Conformity::TaskHelpers.engine
-    result = engine.check(full_verify: true)
+    progress = ->(label) { warn "conformity: #{label}" }
+    result = engine.check(full_verify: true, progress: progress)
     if result[:passed?]
       puts "conformity: green — no new findings"
     else

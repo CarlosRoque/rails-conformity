@@ -6,7 +6,7 @@ module Rails
           self.class.name.demodulize.underscore
         end
 
-        def call(files:, full: false)
+        def call(files:, full: false, progress: nil)
           []
         end
       end

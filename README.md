@@ -32,6 +32,31 @@ The install generator:
 
 That's it. The gate now runs on every push and on every agent edit.
 
+## First run: what just happened?
+
+**Nothing was codified. Nobody should be surprised by that — you were not asked, because `--no-interactive` picks the ratchet mode.**
+
+The installer has exactly two first-run modes:
+
+| Mode | What it does | When to pick it |
+| --- | --- | --- |
+| **Ratchet** (default, silent) | Records every current violation as known debt. Nothing is codified, nothing is removed. You are green now. | Big existing codebase, wants to move today. |
+| **Triage** (interactive) | Walks each finding and asks: codify / exempt / reject / keep. Each answer is a registry entry. | Small app, or you want to sit down and decide everything up front. |
+
+Re-run triage later without reinstalling:
+
+```bash
+bin/rails conformity:triage
+```
+
+**The word "codify" is the gem's key concept, and it is always your decision.** Codifying turns a repeated pattern into a generator (or cop) so nobody writes it by hand again. It happens only when you run `conformity:codify_generator[...]` or `conformity:codify_cop`, or answer `[c]odify` in triage. Installing alone codifies nothing.
+
+A real adoption on a big app looks like this:
+
+1. Install with the ratchet. Green gate over your debt. Step 1 done.
+2. Use the app normally. The gate silently stops anything *new*.
+3. Over weeks, look at `conformity:report` for repeated-pattern candidates and codify the ones you like, one at a time. The baseline shrinks as you go.
+
 ## The skill
 
 Install also ships `.claude/skills/conformity/SKILL.md`. Every agent that reads skills gets the same playbook. It tells the agent:

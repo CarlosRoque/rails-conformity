@@ -8,7 +8,8 @@ module Rails
           @app_root = app_root
         end
 
-        def call(files:, full: false)
+        def call(files:, full: false, progress: nil)
+          progress&.call("checking convention rules")
           findings = []
           files.each do |file|
             next unless file.end_with?(".rb")
